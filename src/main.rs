@@ -28,7 +28,7 @@ Available commands:
 
 // Argument guards
 fn speed_guard(speed: &f32) -> bool {
-    return *speed > 0.0 && *speed < 2.0;
+    *speed > 0.0 && *speed < 2.0
 }
 
 #[derive(Debug, Clone, Bpaf)]
@@ -62,16 +62,14 @@ fn walk_dir(
 
         if recursive && file_path.is_dir() {
             walk_dir(&file_path, file_paths, recursive)?;
+        } else if file_path.extension().and_then(OsStr::to_str) == Some("mp3") {
+            // This could be a lossy conversion. Read the docs about this
+            file_paths.push(file_path.display().to_string());
         } else {
-            if file_path.extension().and_then(OsStr::to_str) == Some("mp3") {
-                // This could be a lossy conversion. Read the docs about this
-                file_paths.push(file_path.display().to_string());
-            } else {
-                warn!(
-                    "Found non-mp3 file or directory {}",
-                    file_path.display().to_string()
-                );
-            }
+            warn!(
+                "Found non-mp3 file or directory {}",
+                file_path.display().to_string()
+            );
         }
     }
     // Should we be converting to a vec here?
@@ -155,7 +153,7 @@ fn main() {
 
             let sink = sink_clone.lock().unwrap();
 
-            let mut parts = input.trim().split_whitespace();
+            let mut parts = input.split_whitespace();
             if let Some(command) = parts.next() {
                 match command {
                     "help" => {
