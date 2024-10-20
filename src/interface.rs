@@ -12,17 +12,12 @@ Available commands:
   resume      - Resume audio playback.
   skip        - Skip to the next track
   speed <n>   - Set playback speed to a specific value (min: 0.1, max: 2.0)
-  volume <n>  - Set playback volume to a specific value (min: 0.1, max: 5.0)
   quit        - Stop playback and exit the program.
   help        - Show this help message.
 "#;
 
 fn set_speed(sink: &rodio::Sink, speed: f32) {
     sink.set_speed(speed.max(0.1).min(2.0));
-}
-
-fn set_volume(sink: &rodio::Sink, speed: f32) {
-    sink.set_volume(speed.max(0.1).min(5.0));
 }
 
 pub(crate) fn create_interface_thread(sink: &Arc<Mutex<Sink>>) {
@@ -67,17 +62,6 @@ pub(crate) fn create_interface_thread(sink: &Arc<Mutex<Sink>>) {
                             }
                         } else {
                             println!("Please provide a speed value.");
-                        }
-                    }
-                    "volume" => {
-                        if let Some(speed_str) = parts.next() {
-                            if let Ok(speed) = speed_str.parse::<f32>() {
-                                set_volume(&sink, speed);
-                            } else {
-                                println!("Invalid volume value.");
-                            }
-                        } else {
-                            println!("Please provide a volume value.");
                         }
                     }
                     "quit" => {
