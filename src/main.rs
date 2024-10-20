@@ -1,3 +1,6 @@
+pub mod interface;
+pub mod search;
+
 use bpaf::Bpaf;
 
 use rand::seq::SliceRandom;
@@ -5,26 +8,14 @@ use rand::seq::SliceRandom;
 use rodio::Sink;
 use rodio::{Decoder, OutputStream};
 
-use std::ffi::OsStr;
-use std::fs::{self, File};
-use std::io::{BufReader, Write};
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use log::{info, warn};
-
-// String constants
-const HELP_MESSAGE: &str = r#"
-Available commands:
-  pause       - Pause audio playback.
-  resume      - Resume audio playback.
-  skip        - Skip to the next track (if supported).
-  speed <n>   - Set playback speed to a specific value (e.g., 'speed 1.5').
-  quit        - Stop playback and exit the program.
-  help        - Show this help message.
-"#;
+use log::info;
 
 // Argument guards
 fn speed_guard(speed: &f32) -> bool {
@@ -51,51 +42,6 @@ struct Arguments {
     pub audio_path: String,
 }
 
-fn walk_dir(
-    dir: &Path,
-    file_paths: &mut Vec<String>,
-    recursive: bool,
-) -> Result<Vec<String>, std::io::Error> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let file_path = entry.path();
-
-        if recursive && file_path.is_dir() {
-            walk_dir(&file_path, file_paths, recursive)?;
-        } else if file_path.extension().and_then(OsStr::to_str) == Some("mp3") {
-            // This could be a lossy conversion. Read the docs about this
-            file_paths.push(file_path.display().to_string());
-        } else {
-            warn!(
-                "Found non-mp3 file or directory {}",
-                file_path.display().to_string()
-            );
-        }
-    }
-    // Should we be converting to a vec here?
-    Ok(file_paths.to_vec())
-}
-
-fn get_file_paths(dir: &Path, recursive: bool) -> Result<Vec<String>, std::io::Error> {
-    match dir.is_dir() {
-        // Return a vector containing all audio files in the dir
-        true => {
-            let mut file_paths: Vec<String> = Vec::new();
-            walk_dir(dir, &mut file_paths, recursive)
-        }
-        // Return a vector of size one
-        false => Ok(Vec::from([dir.display().to_string()])),
-    }
-}
-
-fn set_speed(sink: &rodio::Sink, speed: f32) {
-    sink.set_speed(speed.max(0.1).min(2.0));
-}
-
-fn set_volume(sink: &rodio::Sink, speed: f32) {
-    sink.set_speed(speed.max(0.1).min(2.0));
-}
-
 fn main() {
     env_logger::init();
 
@@ -104,7 +50,7 @@ fn main() {
     // Get an output stream handle to the default physical sound device
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
-    let file_paths = get_file_paths(Path::new(&(opts.audio_path)), opts.recursive);
+    let file_paths = search::get_file_paths(Path::new(&(opts.audio_path)), opts.recursive);
 
     // Create a new sink, which allows us to control the audio being played.
     let sink = Sink::try_new(&stream_handle).unwrap();
@@ -112,7 +58,7 @@ fn main() {
     sink.set_speed(opts.audio_speed);
 
     // Clone the sink so it can be shared across threads
-    let sink = Arc::new(Mutex::new(sink));
+    let sink: Arc<Mutex<Sink>> = Arc::new(Mutex::new(sink));
 
     // Set the playback speed of the audio based on a command line argument
 
@@ -140,71 +86,7 @@ fn main() {
         Err(_) => todo!(),
     }
 
-    // Spawn a thread to handle user input
-    let sink_clone = sink.clone();
-    thread::spawn(move || {
-        let mut input = String::new();
-        loop {
-            // Get user input
-            print!("Playing music, type 'help' for command list: ");
-            std::io::stdout().flush().unwrap();
-            input.clear();
-            std::io::stdin().read_line(&mut input).unwrap();
-
-            let sink = sink_clone.lock().unwrap();
-
-            let mut parts = input.split_whitespace();
-            if let Some(command) = parts.next() {
-                match command {
-                    "help" => {
-                        println!("{}", HELP_MESSAGE);
-                    }
-                    "pause" => {
-                        sink.pause();
-                        println!("Paused.");
-                    }
-                    "resume" => {
-                        sink.play();
-                        println!("Resumed.");
-                    }
-                    "skip" => {
-                        sink.skip_one();
-                        println!("Skipping track...");
-                    }
-                    "speed" => {
-                        // Check if there's a second argument with the speed value
-                        if let Some(speed_str) = parts.next() {
-                            if let Ok(speed) = speed_str.parse::<f32>() {
-                                set_speed(&sink, speed);
-                            } else {
-                                println!("Invalid speed value.");
-                            }
-                        } else {
-                            println!("Please provide a speed value.");
-                        }
-                    }
-                    "volume" => {
-                        if let Some(speed_str) = parts.next() {
-                            if let Ok(speed) = speed_str.parse::<f32>() {
-                                set_volume(&sink, speed);
-                            } else {
-                                println!("Invalid volume value.");
-                            }
-                        } else {
-                            println!("Please provide a volume value.");
-                        }
-                    }
-                    "quit" => {
-                        sink.clear();
-                        return false;
-                    }
-                    _ => {
-                        println!("Unknown command.");
-                    }
-                }
-            }
-        }
-    });
+    interface::create_interface_thread(&sink);
 
     // Keep the main thread alive while audio is playing
     loop {
