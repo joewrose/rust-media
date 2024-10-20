@@ -1,17 +1,30 @@
 use bpaf::Bpaf;
 
+use rand::seq::SliceRandom;
+
 use rodio::Sink;
 use rodio::{Decoder, OutputStream};
 
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use log::{info, warn};
 
 // String constants
-const INCORRECT_SPEED: &str = "Speed must be between 0.0 and 2.0";
+const HELP_MESSAGE: &str = r#"
+Available commands:
+  pause       - Pause audio playback.
+  resume      - Resume audio playback.
+  skip        - Skip to the next track (if supported).
+  speed <n>   - Set playback speed to a specific value (e.g., 'speed 1.5').
+  quit        - Stop playback and exit the program.
+  help        - Show this help message.
+"#;
 
 // Argument guards
 fn speed_guard(speed: &f32) -> bool {
@@ -21,13 +34,13 @@ fn speed_guard(speed: &f32) -> bool {
 #[derive(Debug, Clone, Bpaf)]
 #[bpaf(options)]
 struct Arguments {
-    #[bpaf(flag(true, false))]
+    #[bpaf(long("recursive"), short('r'), flag(true, false))]
     recursive: bool,
 
     #[bpaf(
         long("speed"),
         short('s'),
-        guard(speed_guard, INCORRECT_SPEED),
+        guard(speed_guard, "Speed must be between 0.0 and 2.0"),
         fallback(1.0)
     )]
     /// The speed at which you want the audio to play
@@ -77,6 +90,14 @@ fn get_file_paths(dir: &Path, recursive: bool) -> Result<Vec<String>, std::io::E
     }
 }
 
+fn set_speed(sink: &rodio::Sink, speed: f32) {
+    sink.set_speed(speed.max(0.1).min(2.0));
+}
+
+fn set_volume(sink: &rodio::Sink, speed: f32) {
+    sink.set_speed(speed.max(0.1).min(2.0));
+}
+
 fn main() {
     env_logger::init();
 
@@ -90,11 +111,18 @@ fn main() {
     // Create a new sink, which allows us to control the audio being played.
     let sink = Sink::try_new(&stream_handle).unwrap();
 
-    // Set the playback speed of the audio based on a command line argument
     sink.set_speed(opts.audio_speed);
 
+    // Clone the sink so it can be shared across threads
+    let sink = Arc::new(Mutex::new(sink));
+
+    // Set the playback speed of the audio based on a command line argument
+
     match file_paths {
-        Ok(file_paths) => {
+        Ok(mut file_paths) => {
+            let mut rng = rand::thread_rng();
+            file_paths.shuffle(&mut rng);
+
             for path in file_paths.iter() {
                 info!("Found file: {}", path);
 
@@ -105,12 +133,87 @@ fn main() {
                 let source = Decoder::new(reader).unwrap();
 
                 // Add the current source to the audio to be played
-                sink.append(source);
+                {
+                    let sink = sink.clone();
+                    sink.lock().unwrap().append(source);
+                }
             }
         }
         Err(_) => todo!(),
     }
 
-    // The audio is played in a separate thread, this call makes the current thread sleep until it is done
-    sink.sleep_until_end();
+    // Spawn a thread to handle user input
+    let sink_clone = sink.clone();
+    thread::spawn(move || {
+        let mut input = String::new();
+        loop {
+            // Get user input
+            print!("Playing music, type 'help' for command list: ");
+            std::io::stdout().flush().unwrap();
+            input.clear();
+            std::io::stdin().read_line(&mut input).unwrap();
+
+            let sink = sink_clone.lock().unwrap();
+
+            let mut parts = input.trim().split_whitespace();
+            if let Some(command) = parts.next() {
+                match command {
+                    "help" => {
+                        println!("{}", HELP_MESSAGE);
+                    }
+                    "pause" => {
+                        sink.pause();
+                        println!("Paused.");
+                    }
+                    "resume" => {
+                        sink.play();
+                        println!("Resumed.");
+                    }
+                    "skip" => {
+                        sink.skip_one();
+                        println!("Skipping track...");
+                    }
+                    "speed" => {
+                        // Check if there's a second argument with the speed value
+                        if let Some(speed_str) = parts.next() {
+                            if let Ok(speed) = speed_str.parse::<f32>() {
+                                set_speed(&sink, speed);
+                            } else {
+                                println!("Invalid speed value.");
+                            }
+                        } else {
+                            println!("Please provide a speed value.");
+                        }
+                    }
+                    "volume" => {
+                        if let Some(speed_str) = parts.next() {
+                            if let Ok(speed) = speed_str.parse::<f32>() {
+                                set_volume(&sink, speed);
+                            } else {
+                                println!("Invalid volume value.");
+                            }
+                        } else {
+                            println!("Please provide a volume value.");
+                        }
+                    }
+                    "quit" => {
+                        sink.clear();
+                        return false;
+                    }
+                    _ => {
+                        println!("Unknown command.");
+                    }
+                }
+            }
+        }
+    });
+
+    // Keep the main thread alive while audio is playing
+    loop {
+        thread::sleep(Duration::from_millis(100));
+        let sink = sink.lock().unwrap();
+        if sink.empty() {
+            break;
+        }
+    }
 }
