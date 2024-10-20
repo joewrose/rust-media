@@ -10,8 +10,9 @@ const HELP_MESSAGE: &str = r#"
 Available commands:
   pause       - Pause audio playback.
   resume      - Resume audio playback.
-  skip        - Skip to the next track (if supported).
-  speed <n>   - Set playback speed to a specific value (e.g., 'speed 1.5').
+  skip        - Skip to the next track
+  speed <n>   - Set playback speed to a specific value (min: 0.1, max: 2.0)
+  volume <n>  - Set playback volume to a specific value (min: 0.1, max: 5.0)
   quit        - Stop playback and exit the program.
   help        - Show this help message.
 "#;
