@@ -17,7 +17,7 @@ Available commands:
 "#;
 
 fn set_speed(sink: &rodio::Sink, speed: f32) {
-    sink.set_speed(speed.max(0.1).min(2.0));
+    sink.set_speed(speed.clamp(0.1, 2.0));
 }
 
 pub(crate) fn create_interface_thread(sink: &Arc<Mutex<Sink>>) {

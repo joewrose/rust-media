@@ -28,13 +28,12 @@ fn walk_dir(
 }
 
 pub(crate) fn get_file_paths(dir: &Path, recursive: bool) -> Result<Vec<String>, std::io::Error> {
-    match dir.is_dir() {
+    if dir.is_dir() {
         // Return a vector containing all audio files in the dir
-        true => {
-            let mut file_paths: Vec<String> = Vec::new();
-            walk_dir(dir, &mut file_paths, recursive)
-        }
+        let mut file_paths: Vec<String> = Vec::new();
+        walk_dir(dir, &mut file_paths, recursive)
+    } else {
         // Return a vector of size one
-        false => Ok(Vec::from([dir.display().to_string()])),
+        Ok(Vec::from([dir.display().to_string()]))
     }
 }
